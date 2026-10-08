@@ -264,18 +264,20 @@ const Voice = {
   btn: null, run: 0, done: null, active: false,
   // Google's voices offered in the album: [name, how it sounds, who]. Known after signing in; null until then or when not set up.
   GOOGLE: [["Sulafat", "calda", "Donna"], ["Vindemiatrix", "gentile", "Donna"], ["Achernar", "morbida", "Donna"], ["Algieba", "pacata", "Uomo"], ["Achird", "amichevole", "Uomo"], ["Iapetus", "chiara", "Uomo"]],
-  cloud: null, spent: false, checked: false, urls: new Map(), audio: null, unlocking: null,
+  cloud: null, spent: false, checked: false, why: "", urls: new Map(), audio: null, unlocking: null,
   // Asked once after signing in: are the natural voices set up, and is some of this month's free allowance left?
   async check() {
     if (this.checked || C.mode !== "supabase" || !window.SupabaseVoice) return;
     this.checked = true;
-    try { const s = await window.SupabaseVoice.status(); const vs = (s.voices || []).filter(v => this.GOOGLE.some(g => g[0] === v)); this.cloud = vs.length ? vs : null; this.spent = s.left != null && s.left < 300; }
-    catch (e) { this.cloud = null; }
+    try { const s = await window.SupabaseVoice.status(); const vs = (s.voices || []).filter(v => this.GOOGLE.some(g => g[0] === v)); this.cloud = vs.length ? vs : null; this.spent = s.left != null && s.left < 300; this.why = ""; }
+    catch (e) { this.cloud = null; this.why = (e && e.code) || "voice_failed"; }
   },
   // The voices that sound most like a person come first: Apple's premium and enhanced ones, Microsoft's natural
   // ones, Google's. The one chosen under "Voce e musica" wins on this device.
   rank(v) { const s = `${v.name} ${v.voiceURI}`.toLowerCase(); return /premium/.test(s) ? 4 : /enhanced|avanzat|migliorat|natural|neural/.test(s) ? 3 : /google|microsoft/.test(s) ? 2 : /alice|federica|emma/.test(s) ? 1 : 0; },
-  list() { try { return speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang)).sort((a, b) => this.rank(b) - this.rank(a) || a.name.localeCompare(b.name)); } catch { return []; } },
+  // Apple's playful voices (Eddy, Flo, Nonna, Nonno, Reed, Rocko, Sandy, Shelley) sound broken reading memories: left out.
+  odd: /\b(eddy|flo|nonna|nonno|grandma|grandpa|reed|rocko|sandy|shelley)\b/i,
+  list() { try { const all = speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang)), ok = all.filter(v => !this.odd.test(v.name)); return (ok.length ? ok : all).sort((a, b) => this.rank(b) - this.rank(a) || a.name.localeCompare(b.name)); } catch { return []; } },
   pick() { const want = ls.get("voice", ""), vs = this.list(); return (want && vs.find(v => v.voiceURI === want)) || vs[0] || null; },
   // The natural voice that reads ("g:Sulafat" in the settings), or null when a device voice was chosen or none is available.
   google() {
@@ -465,6 +467,7 @@ const Music = {
 // ---------- Choosing the voice, its speed and the music ----------
 const voiceName = v => v.name.replace(/^Microsoft\s+/i, "").replace(/\s+-\s+.*$/, "").replace(/\s*\(.*?\)/g, "").replace(/\s+Online\b/i, "").trim() || v.name;
 const voiceKind = v => { const r = Voice.rank(v); return r >= 4 ? "La più naturale" : r === 3 ? "Più naturale" : ""; };
+const VOICE_WHY = { not_configured: "in Supabase manca il segreto GOOGLE_TTS_KEY", not_signed_in: "Supabase non riconosce l'accesso, esci e rientra", http_404: "in Supabase non c'è la funzione «voce»", http_401: "la funzione «voce» chiede la verifica JWT, va spenta", voice_failed: "la funzione «voce» non risponde" };
 function openVoice() {
   const draw = () => {
     const vs = Voice.list(), cur = Voice.pick(), g = Voice.google(), rate = Voice.rate(), music = Music.wanted();
@@ -478,6 +481,7 @@ function openVoice() {
       ${nat.length ? `<p class="mono vgroup">Voci naturali</p><div class="voices">${nat.map(natBtn).join("")}</div>
         ${Voice.spent ? `<p class="hint">Per questo mese le voci naturali hanno finito: tornano il mese prossimo. Intanto legge una delle altre voci.</p>` : ""}
         ${vs.length ? `<p class="mono vgroup">Altre voci</p>` : ""}` : ""}
+      ${!nat.length && C.mode === "supabase" && Voice.why ? `<p class="hint">Le voci naturali non sono attive: ${esc(VOICE_WHY[Voice.why] || `errore «${Voice.why}»`)}.</p>` : ""}
       ${vs.length ? `<div class="voices">${vs.map(devBtn).join("")}</div>`
         : nat.length ? "" : `<p class="hint">Su questo dispositivo non ci sono voci italiane: i ricordi si possono leggere, ma non ascoltare.</p>`}
       ${apple ? `<p class="hint">Su iPhone, iPad e Mac si possono scaricare voci più naturali, gratis: Impostazioni › Accessibilità › Contenuto letto › Voci › Italiano. Poi riapri l'album e sceglila qui.</p>` : ""}
@@ -486,6 +490,7 @@ function openVoice() {
         <p class="hint" style="margin-top:12px">Un pianoforte leggero sotto la voce, mentre l'album racconta.</p></fieldset>`;
   };
   const s = sheet(draw(), { z: 60 }), redraw = () => { const y = s.el.scrollTop; s.set(draw()); s.el.scrollTop = y; };
+  if (!Voice.cloud && C.mode === "supabase") { Voice.checked = false; Voice.check().then(() => { if (!s.closed) redraw(); }); }
   s.el.addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b || b.closest("[data-close]")) return;
     if (b.dataset.voice) { ls.set("voice", b.dataset.voice); redraw(); const v = Voice.pick(); Voice.play([`Ciao, sono ${!Voice.google() && v ? voiceName(v) : "la voce dell'album"}. Vi racconterò i vostri ricordi.`]); }

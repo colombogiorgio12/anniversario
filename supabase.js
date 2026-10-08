@@ -192,6 +192,7 @@
     if (!error && data) return data;
     let code = "voice_failed";
     try { code = (await error.context.json()).error || code; } catch {}
+    if (code === "voice_failed" && error && error.context && error.context.status) code = "http_" + error.context.status;
     throw { code };
   }
   window.SupabaseVoice = {
