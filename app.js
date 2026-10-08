@@ -1777,6 +1777,7 @@ function renderFoto() {
       <button type="button" class="btn" id="addPhotos">${I.plus}Aggiungi</button></div>
     <div class="chips">${chipKeys(S.filter, true).map(([id, t]) => `<button type="button" class="chip" data-filter="${esc(id)}" aria-pressed="${S.filter === id}">${esc(t)}</button>`).join("")}</div>
     <span class="mono mute" id="qcount"></span>
+    <div class="row" id="qaiRow" style="margin:10px 0" hidden><button type="button" class="btn line" id="qai">${I.spark}Chiedi all'AI di trovarle</button></div>
     ${S.gone.length ? `<button type="button" class="link" id="goneList">Foto tolte dall'album (${S.gone.length})</button>` : ""}
     ${untagged ? `<div class="row" style="margin:10px 0"><button type="button" class="btn line" id="tagRest">${I.spark}Fai guardare all'AI ${untagged} foto nuove</button></div>` : ""}`;
   if (!list.length) h += `<p class="empty-note">${S.filter === "fav" ? "Nessuna preferita ancora. Tocca il cuore su una foto per tenerla qui." : S.filter === "rm" ? "Nessuna foto da decidere." : "Nessuna foto qui."}</p>`;
@@ -1790,7 +1791,8 @@ function renderFoto() {
 function applyFotoSearch() {
   const ws = terms(S.q), cnt = $("#qcount");
   const grid = $("#fotoGrid");
-  if (grid) { let n = 0; grid.querySelectorAll(".tile").forEach(t => { const ok = matches(photoById(t.dataset.id), ws); t.hidden = !ok; if (ok) n++; }); if (cnt) cnt.textContent = ws.length ? (n ? `${n} foto trovate` : "Nessuna foto trovata. Prova con altre parole.") : ""; }
+  if (grid) { let n = 0; grid.querySelectorAll(".tile").forEach(t => { const ok = S.aiIds ? S.aiIds.includes(t.dataset.id) : matches(photoById(t.dataset.id), ws); t.hidden = !ok; if (ok) n++; }); if (cnt) cnt.textContent = S.aiIds ? S.aiWhy : ws.length ? (n ? `${n} foto trovate` : `Nessuna foto trovata. Prova con altre parole${AI.ready ? " o chiedi all'AI" : ""}.`) : ""; }
+  const ar = $("#qaiRow"); if (ar) ar.hidden = !(grid && AI.ready && ws.length && !S.aiIds);
   const deck = $("#deck");
   if (deck) { deck.innerHTML = ""; S.deck = 0; const n = fotoList().length; if (cnt) cnt.textContent = ws.length ? (n ? `${n} foto trovate` : "Nessuna foto trovata. Prova con altre parole.") : ""; drawDeck(); }
 }
@@ -1945,7 +1947,19 @@ const Reveal = {
 function wireFotoSearch() {
   const inp = $("#q"); if (!inp) return;
   let t = null;
-  const run = () => { S.q = inp.value; applyFotoSearch(); };
+  const run = () => { S.q = inp.value; S.aiIds = null; applyFotoSearch(); };
+  // Searching in plain words: the AI picks the photos that fit, and the grid shows just those until the words change.
+  const ai = $("#qai");
+  if (ai) ai.onclick = async () => {
+    const q = inp.value.trim(); if (!q) return;
+    ai.disabled = true; ai.innerHTML = `${I.spark}Sto cercando…`;
+    try {
+      const out = await aiFind(q), ids = ((out && out.ids) || []).filter(id => photoById(id));
+      if (ids.length) { S.aiIds = ids; S.aiWhy = out.perche ? `L'AI: ${out.perche}` : `${ids.length} foto trovate dall'AI`; }
+      else toast("L'AI non ha trovato foto adatte. Prova a dirlo in un altro modo.");
+    } catch { toast("Non sono riuscito a chiedere all'AI. Riprova."); }
+    ai.disabled = false; ai.innerHTML = `${I.spark}Chiedi all'AI di trovarle`; applyFotoSearch();
+  };
   inp.oninput = () => { clearTimeout(t); t = setTimeout(run, 160); };
   inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); };
   attachDictation($("#qMic"), inp, run);
@@ -2517,7 +2531,7 @@ async function aiFind(q) {
   return AI.json(`Aiuta una persona anziana a ritrovare delle foto nell'album di famiglia. Ogni riga è una foto: id|data|luogo|parole chiave|didascalia|ricordi.
 ${lines}
 
-La persona cerca: "${q}"
+${whoRule() ? `Le persone: ${coupleReal()} sono la coppia dell'album (le foto con "coppia" o "ritratto" sono quasi sempre loro).\n` : ""}La persona cerca: "${q}"
 Scegli le foto che corrispondono meglio (al massimo 40, le più adatte per prime). Interpreta con buon senso: stagioni, feste, luoghi simili, persone. Se nessuna corrisponde, lista vuota.
 JSON: {"ids": ["p001"], "perche": "una frase breve e semplice in italiano su cosa hai cercato"}`, { quick: true });
 }
