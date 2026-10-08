@@ -788,8 +788,8 @@ function whoRule() {
   const N = NAMES(), w = PEOPLE.find(p => p.id === "mamma"), m = PEOPLE.find(p => p.id === "papa");
   const others = (Array.isArray(N.others) ? N.others : []).filter(o => o && o.name);
   const out = [];
-  if (w && m && N.mamma && N.papa) out.push(`- Nella coppia la donna è ${realName(w)} e l'uomo è ${realName(m)}: quando nella foto si vede chiaramente la coppia, chiamali per nome.`);
-  if (others.length) out.push(`- ${others.map(o => `${o.name} è ${o.who || "di famiglia"}`).join("; ")}: usa il nome solo se è scritto in "Chi c'è".`);
+  if (w && m && N.mamma && N.papa) out.push(`- È l'album di ${coupleReal()}: la donna e l'uomo che si vedono insieme, o da soli come protagonisti, sono loro. Chiamali sempre per nome, ${realName(w)} lei e ${realName(m)} lui, mai "la coppia", "lei" o "lui" senza nome. Se "Chi c'è" dice altro, vale "Chi c'è".`);
+  if (others.length) out.push(`- ${others.map(o => `${o.name} è ${o.who || "di famiglia"}`).join("; ")}: quando si vede una bambina insieme a loro, chiamala ${others[0].name}.`);
   return out.join("\n");
 }
 const TENS = { 30: "trenta", 40: "quaranta", 50: "cinquanta", 60: "sessanta" };
@@ -928,12 +928,13 @@ function wordsOf(mo) {
 // A few sentences that follow the photos in order, each one read while its photo is in the frame. Kept with the
 // family's data (stories, key "n:" + the moment), so each moment is written only once, and again if photos join it.
 const narrKey = mo => "n:" + mo.key;
+const NARR_V = 2;   // the rule for names changed: narrations written before are written again
 const NARR = new Map();
 function narrationOf(mo) {
   const st = S.stories[narrKey(mo)], d = st && st.details;
   if (!d || !Array.isArray(d.lines)) return null;
   const lines = d.lines.filter(l => l && l.t);
-  return lines.length ? { title: d.title || "", lines, fresh: st.count === mo.photos.length && (st.updated || 0) >= namesAt() } : null;
+  return lines.length ? { title: d.title || "", lines, fresh: st.count === mo.photos.length && (st.updated || 0) >= namesAt() && (d.v || 1) >= NARR_V } : null;
 }
 // A caption that goes on after a comma: "Sorrisi in terrazza" becomes "sorrisi in terrazza", "Venezia dal ponte" stays.
 const lower1 = (s, place) => { const w = norm(s.split(/\s/)[0]); return w && norm(place).split(" ").includes(w) ? s : s[0].toLowerCase() + s.slice(1); };
@@ -973,14 +974,14 @@ ${seen.length ? `Le immagini allegate sono, nell'ordine, le foto ${seen.map(i =>
 Scrivi il racconto che una voce leggerà mentre le foto scorrono: da ${lo} a ${hi} frasi, ognuna legata alla foto che si vede mentre viene letta, seguendo l'ordine delle foto.
 - Descrivi con precisione e calore quello che si vede: il posto, la luce, i colori, cosa si sta facendo, cosa c'è sulla tavola o intorno.
 - Fai scorrere il racconto come una piccola storia, con passaggi naturali da una foto all'altra. Non contare le foto e non usare formule come "e altre foto di quel periodo".
-${whoRule() ? whoRule() + "\n" : ""}- Per tutti gli altri usa solo i nomi scritti in "Chi c'è"; altrimenti non dare nomi e non provare a riconoscere chi è dal viso: "la coppia", "la famiglia", "gli amici", "una bambina" vanno bene quando si vede.
+${whoRule() ? whoRule() + "\n" : ""}- Per tutti gli altri usa solo i nomi scritti in "Chi c'è"; altrimenti non dare nomi e non provare a riconoscere chi è dal viso: "la famiglia", "gli amici" vanno bene quando si vede.
 - Non inventare fatti, luoghi o date che non si vedono e non sono scritti qui.
 - Italiano semplice ed elegante, al passato; frasi brevi, al massimo 28 parole.
 Dai anche al momento un titolo breve e caldo, da 2 a 5 parole, senza date.
 JSON: {"title": "...", "lines": [{"text": "...", "photo": 1}]}`, { images: seen.map(i => blobs[look.indexOf(i)]) });
     const L = (Array.isArray(out && out.lines) ? out.lines : []).map(l => ({ t: String((l && l.text) || "").replace(/\s+/g, " ").trim(), i: Math.round(+(l && l.photo)) || 1 })).filter(l => l.t).slice(0, hi + 1);
     if (!L.length) return null;
-    const det = { title: String((out && out.title) || "").replace(/\s+/g, " ").replace(/["«».]/g, "").trim().slice(0, 48),
+    const det = { v: NARR_V, title: String((out && out.title) || "").replace(/\s+/g, " ").replace(/["«».]/g, "").trim().slice(0, 48),
       lines: L.map(l => ({ t: /[.!?…»"]$/.test(l.t) ? l.t : l.t + ".", p: ps[clamp(l.i, 1, n) - 1].id })) };
     const st = { story: det.lines.map(l => l.t).join(" "), details: det, count: mo.photos.length, updated: Date.now() };
     S.stories[key] = st;
