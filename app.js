@@ -772,6 +772,21 @@ function askName(title, value = "") {
 // The years run from when they met to today while photos flash by, then Giorgio's dedication. A tap opens the album.
 const SON = () => PEOPLE.find(p => !p.partner) || null;
 const coupleNames = () => PEOPLE.filter(p => p.partner).map(p => p.name).join(" e ");
+// The real names, for what the AI writes: kept with the family's data (stories, key "nomi"), never in the public code.
+// details: {mamma: "…", papa: "…", others: [{name, who}]}, "who" saying how they appear in the photos.
+const NAMES = () => { const st = S.stories && S.stories.nomi; return Object.assign({}, C.names || {}, (st && st.details && !Array.isArray(st.details)) ? st.details : {}); };
+const realName = p => (NAMES()[p.id] || "").trim() || p.name;
+const coupleReal = () => PEOPLE.filter(p => p.partner).map(realName).reduce((t, n) => t ? t + (/^[eE]/.test(n) ? " ed " : " e ") + n : n, "");
+const namesAt = () => { const st = S.stories && S.stories.nomi; return (st && st.updated) || 0; };
+// What the AI may call people in photos: the couple by name when it is plainly them, anyone else only when written in "Chi c'è".
+function whoRule() {
+  const N = NAMES(), w = PEOPLE.find(p => p.id === "mamma"), m = PEOPLE.find(p => p.id === "papa");
+  const others = (Array.isArray(N.others) ? N.others : []).filter(o => o && o.name);
+  const out = [];
+  if (w && m && N.mamma && N.papa) out.push(`- Nella coppia la donna è ${realName(w)} e l'uomo è ${realName(m)}: quando nella foto si vede chiaramente la coppia, chiamali per nome.`);
+  if (others.length) out.push(`- ${others.map(o => `${o.name} è ${o.who || "di famiglia"}`).join("; ")}: usa il nome solo se è scritto in "Chi c'è".`);
+  return out.join("\n");
+}
 const TENS = { 30: "trenta", 40: "quaranta", 50: "cinquanta", 60: "sessanta" };
 // The dedication is the start of Giorgio's letter, in his words, as he last saved it. Until the letter arrives (on the
 // real site it can be read only after signing in) the start of it last seen on this device stands in; the preview's
@@ -913,7 +928,7 @@ function narrationOf(mo) {
   const st = S.stories[narrKey(mo)], d = st && st.details;
   if (!d || !Array.isArray(d.lines)) return null;
   const lines = d.lines.filter(l => l && l.t);
-  return lines.length ? { title: d.title || "", lines, fresh: st.count === mo.photos.length } : null;
+  return lines.length ? { title: d.title || "", lines, fresh: st.count === mo.photos.length && (st.updated || 0) >= namesAt() } : null;
 }
 // A caption that goes on after a comma: "Sorrisi in terrazza" becomes "sorrisi in terrazza", "Venezia dal ponte" stays.
 const lower1 = (s, place) => { const w = norm(s.split(/\s/)[0]); return w && norm(place).split(" ").includes(w) ? s : s[0].toLowerCase() + s.slice(1); };
@@ -945,7 +960,7 @@ function narrate(mo) {
     const seen = look.filter((_, j) => blobs[j]);
     const rows = ps.map((p, i) => { const m = metaOf(p); return `${i + 1}. ${fmtDate(p.date)}${placeOf(p) ? " · " + placeOf(p) : ""}${captionOf(p) ? ` · «${captionOf(p)}»` : ""}${tagsOf(p).length ? " · " + tagsOf(p).slice(0, 6).join(", ") : ""}${m.people ? ` · Chi c'è: ${m.people}` : ""}${isVid(p) ? ` · video di ${Math.max(1, Math.round(p.dur || 0))} secondi` : ""}`; });
     const [lo, hi] = n === 1 ? [1, 2] : n <= 3 ? [2, 3] : n <= 8 ? [3, 5] : [4, 6];
-    const out = await AI.json(`Stai raccontando a voce un momento dell'album di famiglia di ${coupleNames()} (si conoscono dal ${C.met}, sposati nel ${C.married}): ${whenOf(mo.photos)}${placeOf(mo.cover) ? ", " + placeOf(mo.cover) : ""}. Nessuno della famiglia l'ha ancora raccontato: lo racconti tu, da quello che si vede.
+    const out = await AI.json(`Stai raccontando a voce un momento dell'album di famiglia di ${coupleReal()} (si conoscono dal ${C.met}, sposati nel ${C.married}): ${whenOf(mo.photos)}${placeOf(mo.cover) ? ", " + placeOf(mo.cover) : ""}. Nessuno della famiglia l'ha ancora raccontato: lo racconti tu, da quello che si vede.
 Le foto, in ordine (data · luogo · didascalia · parole chiave):
 ${rows.join("\n")}
 ${seen.length ? `Le immagini allegate sono, nell'ordine, le foto ${seen.map(i => i + 1).join(", ")}.` : ""}
@@ -953,7 +968,7 @@ ${seen.length ? `Le immagini allegate sono, nell'ordine, le foto ${seen.map(i =>
 Scrivi il racconto che una voce leggerà mentre le foto scorrono: da ${lo} a ${hi} frasi, ognuna legata alla foto che si vede mentre viene letta, seguendo l'ordine delle foto.
 - Descrivi con precisione e calore quello che si vede: il posto, la luce, i colori, cosa si sta facendo, cosa c'è sulla tavola o intorno.
 - Fai scorrere il racconto come una piccola storia, con passaggi naturali da una foto all'altra. Non contare le foto e non usare formule come "e altre foto di quel periodo".
-- Nomina le persone solo con i nomi scritti in "Chi c'è"; altrimenti non dare nomi e non provare a riconoscere chi è dal viso: "la coppia", "la famiglia", "gli amici" vanno bene quando si vede.
+${whoRule() ? whoRule() + "\n" : ""}- Per tutti gli altri usa solo i nomi scritti in "Chi c'è"; altrimenti non dare nomi e non provare a riconoscere chi è dal viso: "la coppia", "la famiglia", "gli amici", "una bambina" vanno bene quando si vede.
 - Non inventare fatti, luoghi o date che non si vedono e non sono scritti qui.
 - Italiano semplice ed elegante, al passato; frasi brevi, al massimo 28 parole.
 Dai anche al momento un titolo breve e caldo, da 2 a 5 parole, senza date.
@@ -1523,11 +1538,11 @@ async function weaveMoment(mo) {
   const key = storyKey(mo); if (S.stories[key] || S.weaving.has(key)) return;
   S.weaving.add(key);
   try {
-    const out = await AI.json(`Stai scrivendo l'album dei 40 anni di matrimonio di ${coupleNames()} (si conoscono dal ${C.met}, sposati nel ${C.married}).
+    const out = await AI.json(`Stai scrivendo l'album dei 40 anni di matrimonio di ${coupleReal()} (si conoscono dal ${C.met}, sposati nel ${C.married}).
 Ecco i ricordi raccontati, ciascuno per conto suo, sulle stesse foto (${whenOf(mo.photos)}${placeOf(mo.cover) ? ", " + placeOf(mo.cover) : ""}):
-${mo.mems.map(m => `[${person(m.who).name}] ${m.text}`).join("\n")}
+${mo.mems.map(m => `[${realName(person(m.who))}] ${m.text}`).join("\n")}
 
-Scrivi il ricordo di queste foto unendo i racconti in un testo solo, coerente e commovente, in terza persona, chiamandoli ${PEOPLE.map(p => p.name).join(", ")}. Quando i ricordi si completano, intrecciali; quando divergono, raccontalo con tenerezza. Non inventare fatti, nomi o luoghi. 60-160 parole, italiano semplice ed elegante, senza titolo.
+Scrivi il ricordo di queste foto unendo i racconti in un testo solo, coerente e commovente, in terza persona, chiamandoli ${PEOPLE.map(realName).join(", ")}. Quando i ricordi si completano, intrecciali; quando divergono, raccontalo con tenerezza. Non inventare fatti, nomi o luoghi. 60-160 parole, italiano semplice ed elegante, senza titolo.
 JSON: {"story": "..."}`);
     if (out && out.story) {
       const s = { story: String(out.story).trim(), details: [], count: mo.mems.length, updated: Date.now() };
@@ -2165,13 +2180,13 @@ async function weave(chId) {
   S.weaving.add(chId); refreshChapter(chId);
   const ps = photosIn(chId).map(p => { const m = metaOf(p); return m.caption || m.place ? `- ${fmtDate(p.date)}${m.place ? ", " + m.place : ""}${m.caption ? ": " + m.caption : ""}` : null; }).filter(Boolean).slice(0, 20);
   try {
-    const out = await AI.json(`Stai scrivendo l'album dei 40 anni di matrimonio di ${PEOPLE.filter(p => p.partner).map(p => p.name).join(" e ")} (si conoscono dal ${C.met}, sposati nel ${C.married}).
+    const out = await AI.json(`Stai scrivendo l'album dei 40 anni di matrimonio di ${coupleReal()} (si conoscono dal ${C.met}, sposati nel ${C.married}).
 Capitolo: "${c.title}" (${c.when}). ${photosIn(chId).length} foto in questo capitolo.
 ${ps.length ? "Didascalie delle foto:\n" + ps.join("\n") + "\n" : ""}
 Ricordi raccontati dai familiari, ciascuno per conto suo:
-${ms.map(m => `[${person(m.who).name}${m.year ? ", " + m.year : ""}${m.place ? ", " + m.place : ""}] ${m.text}`).join("\n")}
+${ms.map(m => `[${realName(person(m.who))}${m.year ? ", " + m.year : ""}${m.place ? ", " + m.place : ""}] ${m.text}`).join("\n")}
 
-Scrivi il racconto di questo capitolo unendo i ricordi in una storia coerente e commovente, in terza persona, chiamandoli ${PEOPLE.map(p => p.name).join(", ")}. Quando i ricordi si completano a vicenda, intrecciali. Quando divergono, raccontalo con tenerezza ("${PEOPLE[0].name} ricorda…, mentre per ${PEOPLE[1].name}…"). Non inventare fatti, nomi o luoghi che non compaiono nei ricordi. 90-220 parole, 1-3 paragrafi separati da una riga vuota, italiano semplice ed elegante.
+Scrivi il racconto di questo capitolo unendo i ricordi in una storia coerente e commovente, in terza persona, chiamandoli ${PEOPLE.map(realName).join(", ")}. Quando i ricordi si completano a vicenda, intrecciali. Quando divergono, raccontalo con tenerezza ("${realName(PEOPLE[0])} ricorda…, mentre per ${realName(PEOPLE[1])}…"). Non inventare fatti, nomi o luoghi che non compaiono nei ricordi. 90-220 parole, 1-3 paragrafi separati da una riga vuota, italiano semplice ed elegante.
 Poi elenca fino a 3 dettagli che solo una persona ha ricordato e che l'altra potrebbe aver dimenticato.
 JSON: {"story": "...", "details": [{"who": "id della persona tra ${PEOPLE.map(p => p.id).join(", ")}", "text": "il dettaglio in una frase"}]}`);
     if (out && out.story) {
