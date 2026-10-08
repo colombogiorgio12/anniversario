@@ -1,0 +1,31 @@
+# Keeps the album awake. Supabase's free plan pauses a project after a week without requests, so every three days
+# this asks the database for one row with the site's public key (the same one in config.js). Each run also
+# re-enables itself, because GitHub switches off scheduled workflows in repositories that see no commits for 60 days.
+name: Sveglia Supabase
+
+on:
+  schedule:
+    - cron: "17 6 */3 * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  sveglia:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ask the database for one row
+        run: |
+          url=$(grep -o 'https://[a-z0-9]*\.supabase\.co' config.js | head -1)
+          key=$(grep -o 'sb_publishable_[A-Za-z0-9_-]*' config.js | head -1)
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "$url/rest/v1/chapters?select=id&limit=1" -H "apikey: $key")
+          echo "Supabase answered $code"
+          # Signed-out visitors may not read the album, so 401 also means the database is up and answered.
+          case "$code" in 200|401|403) ;; *) exit 1 ;; esac
+      - name: Stay switched on
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/sveglia.yml/enable"
